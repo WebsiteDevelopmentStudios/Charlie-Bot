@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
-GUILD_ID = os.getenv("GUILD_ID")
 
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN is missing from .env")
@@ -27,16 +26,12 @@ class CharlieBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents, help_command=None)
 
     async def setup_hook(self):
-        if GUILD_ID and GUILD_ID.isdigit():
-            guild = discord.Object(id=int(GUILD_ID))
-            self.tree.copy_global_to(guild=guild)
-            commands_synced = await self.tree.sync(guild=guild)
-        else:
-            commands_synced = await self.tree.sync()
+        commands_synced = await self.tree.sync()
         logging.info("Synced %d slash commands", len(commands_synced))
 
 
 bot = CharlieBot()
+linked_channel_id = None
 
 
 @bot.event
@@ -159,11 +154,27 @@ async def say(interaction, message: str):
     await interaction.channel.send(message)
 
 
+@bot.tree.command(name="link", description="Link a Discord channel for terminal messages.")
+@app_commands.describe(channel="The channel Charlie should use for terminal messages.")
+@moderator()
+async def link(interaction, channel: discord.TextChannel):
+    global linked_channel_id
+    linked_channel_id = channel.id
+    await interaction.response.send_message(
+        f"🔗 Linked terminal messages to {channel.mention}.",
+        ephemeral=True
+    )
+
+
 @bot.tree.command(name="help", description="Show Charlie's commands.")
 async def help_command(interaction):
     embed = discord.Embed(
         title="🤖 Charlie Bot",
-        description="General: /ping, /serverinfo, /userinfo, /avatar, /help\nModeration: /clear, /kick, /ban, /timeout, /say",
+        description=(
+            "General: /ping, /serverinfo, /userinfo, /avatar, /help\n"
+            "Moderation: /clear, /kick, /ban, /timeout, /say\n"
+            "Setup: /link"
+        ),
         color=discord.Color.blurple()
     )
     await interaction.response.send_message(embed=embed)
@@ -185,10 +196,12 @@ async def command_error(interaction, error):
 async def terminal_loop():
     print("\nCharlie terminal ready.")
     print("Commands:")
-    print("  /send <message>  - send a message to GUILD_ID's first text channel")
+    print("  /send <message>  - send a message to the linked channel")
     print("  /status           - show bot status")
     print("  /stop             - stop the bot")
     print()
+    
+    global linked_channel_id
 
     while not bot.is_closed():
         try:
@@ -207,37 +220,28 @@ async def terminal_loop():
                 print("Usage: /send <message>")
                 continue
 
-            if not GUILD_ID or not GUILD_ID.isdigit():
-                print("GUILD_ID is missing or invalid in .env")
+            if linked_channel_id is None:
+                print("No channel is linked. Run /link #channel in Discord first.")
                 continue
 
-            guild = bot.get_guild(int(GUILD_ID))
-            if guild is None:
-                print("I can't access the configured server.")
-                continue
-
-            channel = next(
-                (c for c in guild.text_channels if c.permissions_for(guild.me).send_messages),
-                None
-            )
-
-            if channel is None:
-                print("I couldn't find a text channel where I can send messages.")
+            channel = bot.get_channel(linked_channel_id)
+            if not isinstance(channel, discord.TextChannel):
+                print("The linked channel could not be found. Run /link again.")
                 continue
 
             try:
                 await channel.send(message)
                 print(f"Sent to #{channel.name}")
             except discord.Forbidden:
-                print("Discord denied permission to send the message.")
+                print("Discord denied permission to send messages in that channel.")
             except discord.HTTPException as error:
                 print(f"Discord error: {error}")
             continue
 
         if command == "/status":
-            guild_count = len(bot.guilds)
             print(f"Logged in as: {bot.user}")
-            print(f"Servers: {guild_count}")
+            print(f"Servers: {len(bot.guilds)}")
+            print(f"Linked channel: {linked_channel_id or 'None'}")
             print(f"Latency: {round(bot.latency * 1000)}ms")
             continue
 
