@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 from datetime import timedelta
 
@@ -34,17 +35,19 @@ class CharlieBot(commands.Bot):
             commands_synced = await self.tree.sync()
         logging.info("Synced %d slash commands", len(commands_synced))
 
-    async def on_ready(self):
-        logging.info("Logged in as %s (%s)", self.user, self.user.id)
-        await self.change_presence(
-            activity=discord.Activity(
-                type=discord.ActivityType.watching,
-                name="your server"
-            )
-        )
-
 
 bot = CharlieBot()
+
+
+@bot.event
+async def on_ready():
+    logging.info("Logged in as %s (%s)", bot.user, bot.user.id)
+    await bot.change_presence(
+        activity=discord.Activity(
+            type=discord.ActivityType.watching,
+            name="your server"
+        )
+    )
 
 
 def moderator():
@@ -171,7 +174,7 @@ async def command_error(interaction, error):
     if isinstance(error, app_commands.CheckFailure):
         message = str(error) or "You do not have permission to use that command."
     else:
-        logging.exception("Slash command error", exc_info=error)
+        logging.error("Slash command error: %s", error, exc_info=error)
         message = "Something went wrong."
     if interaction.response.is_done():
         await interaction.followup.send(message, ephemeral=True)
@@ -179,5 +182,81 @@ async def command_error(interaction, error):
         await interaction.response.send_message(message, ephemeral=True)
 
 
+async def terminal_loop():
+    print("\nCharlie terminal ready.")
+    print("Commands:")
+    print("  /send <message>  - send a message to GUILD_ID's first text channel")
+    print("  /status           - show bot status")
+    print("  /stop             - stop the bot")
+    print()
+
+    while not bot.is_closed():
+        try:
+            command = await asyncio.to_thread(input, "Terminal > ")
+        except (EOFError, KeyboardInterrupt):
+            await bot.close()
+            return
+
+        command = command.strip()
+        if not command:
+            continue
+
+        if command.startswith("/send "):
+            message = command[6:].strip()
+            if not message:
+                print("Usage: /send <message>")
+                continue
+
+            if not GUILD_ID or not GUILD_ID.isdigit():
+                print("GUILD_ID is missing or invalid in .env")
+                continue
+
+            guild = bot.get_guild(int(GUILD_ID))
+            if guild is None:
+                print("I can't access the configured server.")
+                continue
+
+            channel = next(
+                (c for c in guild.text_channels if c.permissions_for(guild.me).send_messages),
+                None
+            )
+
+            if channel is None:
+                print("I couldn't find a text channel where I can send messages.")
+                continue
+
+            try:
+                await channel.send(message)
+                print(f"Sent to #{channel.name}")
+            except discord.Forbidden:
+                print("Discord denied permission to send the message.")
+            except discord.HTTPException as error:
+                print(f"Discord error: {error}")
+            continue
+
+        if command == "/status":
+            guild_count = len(bot.guilds)
+            print(f"Logged in as: {bot.user}")
+            print(f"Servers: {guild_count}")
+            print(f"Latency: {round(bot.latency * 1000)}ms")
+            continue
+
+        if command == "/stop":
+            print("Stopping Charlie-Bot...")
+            await bot.close()
+            return
+
+        print("Unknown command. Use /send, /status, or /stop.")
+
+
+async def main():
+    terminal_task = asyncio.create_task(terminal_loop())
+    try:
+        await bot.start(TOKEN)
+    finally:
+        terminal_task.cancel()
+        await asyncio.gather(terminal_task, return_exceptions=True)
+
+
 if __name__ == "__main__":
-    bot.run(TOKEN)
+    asyncio.run(main())
