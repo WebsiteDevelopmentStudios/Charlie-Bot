@@ -173,7 +173,7 @@ async def help_command(interaction):
         description=(
             "General: /ping, /serverinfo, /userinfo, /avatar, /help\n"
             "Moderation: /clear, /kick, /ban, /timeout, /say\n"
-            "Setup: /link"
+            "Setup: /link <channel> — links the channel used by the terminal"
         ),
         color=discord.Color.blurple()
     )
@@ -196,8 +196,8 @@ async def command_error(interaction, error):
 async def terminal_loop():
     print("\nCharlie terminal ready.")
     print("Commands:")
-    print("  /send <message>  - send a message to the linked channel")
-    print("  /status           - show bot status")
+    print("  /send <message>  - send a message to the Discord channel linked with /link")
+    print("  /status           - show bot status and linked channel")
     print("  /stop             - stop the bot")
     print()
     
@@ -221,12 +221,12 @@ async def terminal_loop():
                 continue
 
             if linked_channel_id is None:
-                print("No channel is linked. Run /link #channel in Discord first.")
+                print("No channel is linked. Use /link #channel in Discord first.")
                 continue
 
             channel = bot.get_channel(linked_channel_id)
             if not isinstance(channel, discord.TextChannel):
-                print("The linked channel could not be found. Run /link again.")
+                print("The linked channel could not be found. Use /link again.")
                 continue
 
             try:
